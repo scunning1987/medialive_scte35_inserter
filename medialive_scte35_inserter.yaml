@@ -81,9 +81,10 @@ Resources:
       FunctionName: !GetAtt SCTE35Inserter.Arn
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt SCTE35Inserter.Arn
+      SourceArn: !GetAtt SCTE35CronEvent.Arn
     DependsOn:
       - SCTE35Inserter
+      - SCTE35CronEvent
 
   #################
   ## Lambda
