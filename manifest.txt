@@ -1,0 +1,6 @@
+## CloudFormation manifest of all the file locations
+https://raw.githubusercontent.com/scunning1987/ads_reference_server/main/ads-reference-server.py
+https://raw.githubusercontent.com/scunning1987/ads_reference_server/main/xmltodict.zip
+
+lambda
+yaml

@@ -1,0 +1,411 @@
+#### Title : MediaLive SCTE35 Inserter
+#### Author : Scott Cunningham
+####
+####
+## Parameters - User Input
+Parameters:
+
+  LambdaInvocationInterval:
+    Type: Number
+    Description: Lambda invocation interval in minutes, valid range 5-50 minutes. The ad break interval you specify in your MediaLive channel must be a denominator if this value.
+    Default: 10
+
+  Scte35InsertionOffset:
+    Type: Number
+    Description: A buffer for creating the first scheduled action in MediaLive. This value should be between 20-30
+    Default: 20
+
+  MediaLiveRegionsToCheck:
+    Type: String
+    Default: us-east-1,us-west-2
+    Description: Select one or more regions for the Lambda function to apply its channel updates to
+
+## Resources
+Resources:
+
+  #################
+  ## IAM & Permissions
+  #################
+  ## IAM Role
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Tags:
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  ## IAM Policy
+  MediaLiveAndCloudWatchPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref LambdaRole
+      PolicyName: !Sub ${AWS::StackName}-MediaLiveAndCloudWatchPolicy
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+            Resource:
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+          - Effect: Allow
+            Action:
+              - medialive:*
+            Resource:
+              - '*'
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource:
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/*
+
+  LambdaInvokedByEventBridge:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SCTE35Inserter.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SCTE35Inserter.Arn
+    DependsOn:
+      - SCTE35Inserter
+
+  #################
+  ## Lambda
+  #################
+
+  SCTE35Inserter:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Lambda function to insert SCTE35 signals into a MediaLive channel based on the channel tags
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python3.8
+      Handler: index.lambda_handler
+      Timeout: 35
+      MemorySize: 10240
+      Code:
+        ZipFile: |
+          '''
+          Copyright (c) 2022 Scott Cunningham
+
+          Permission is hereby granted, free of charge, to any person obtaining a copy
+          of this software and associated documentation files (the "Software"), to deal
+          in the Software without restriction, including without limitation the rights
+          to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+          copies of the Software, and to permit persons to whom the Software is
+          furnished to do so, subject to the following conditions:
+
+          The above copyright notice and this permission notice shall be included in all
+          copies or substantial portions of the Software.
+
+          THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+          IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+          FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+          AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+          LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+          OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+          SOFTWARE.
+
+          Summary: This script interfaces with MediaLive channels to perform schedule deletes, and creates for scte35 ad insertion
+
+          Original Author: Scott Cunningham
+          '''
+
+          import boto3
+          import logging
+          import time
+          import datetime
+          import os
+
+          # initialize logger
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+
+
+          lambda_invocation_interval = int(os.environ['LAMBDA_INTERVAL']) * 60 # This is the cron interval time
+          avail_start_time_offset = int(os.environ['SCTE35_INSERTION_OFFSET']) # this is the offset for when the SCTE35's will be inserted
+          medialive_regions = os.environ['MEDIALIVE_REGIONS'].split(",") # This should be a list populated by CloudFormation template
+          medialive_channels = []
+
+          def lambda_handler(event, context):
+
+              # Log event bridge event payloadd
+              LOGGER.info(event)
+
+              # create exceptions list to catch and be later printed to log
+              exceptions = []
+
+              #
+              # Function Start
+              #
+
+              ## Channel SCTE35 injection
+              def scte35_injector(medialive_channel_id,region,scte_interval,scte_duration,delete_list):
+
+                  # Initialize medialive boto3 client
+                  eml_client = boto3.client('medialive',region_name=region)
+
+                  # str((datetime.datetime.utcnow() + datetime.timedelta(seconds=30)).isoformat())[0:-3]+"Z"
+
+                  actions_to_create = int(lambda_invocation_interval / scte_interval)
+                  #avail_start_time_offset
+
+                  LOGGER.info("Constructing %s schedule actions for Medialive channnel %s in region %s" % (str(actions_to_create),medialive_channel_id,region))
+
+                  schedule_actions_list = []
+
+                  for i in range(0,actions_to_create):
+
+                      break_number = i+1
+                      action_name = "%s_splice_insert_%s" % (str(int(time.time())),str(break_number)) #
+                      schedule_action_start_time_offset = avail_start_time_offset + (break_number * scte_interval)
+                      schedule_action_start_time_iso8601 = str((datetime.datetime.utcnow() + datetime.timedelta(seconds=schedule_action_start_time_offset)).isoformat())[0:-3]+"Z"
+
+                      schedule_action = dict()
+                      schedule_action['ActionName'] = action_name
+                      schedule_action['ScheduleActionStartSettings'] = {}
+                      schedule_action['ScheduleActionStartSettings']['FixedModeScheduleActionStartSettings'] = {}
+                      schedule_action['ScheduleActionStartSettings']['FixedModeScheduleActionStartSettings']['Time'] = schedule_action_start_time_iso8601
+                      schedule_action['ScheduleActionSettings'] = {}
+                      schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings'] = {}
+                      schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings']['Duration'] = scte_duration * 90000
+                      schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings']['SpliceEventId'] = int(time.time() / 1000) + i
+
+                      schedule_actions_list.append(schedule_action)
+
+                  scte35_create_dict = dict()
+                  scte35_create_dict['ScheduleActions'] = schedule_actions_list
+
+                  # Try block to create schedule action in MediaLive
+                  try:
+
+                      msg = "Attempting to insert SCTE35 into MediaLive schedule for channel %s in region %s" % (medialive_channel_id,region)
+                      response = eml_client.batch_update_schedule(ChannelId=medialive_channel_id,Creates=scte35_create_dict,Deletes={'ActionNames':delete_list})
+
+                  except Exception as e:
+                      msg = "Unable to insert SCTE35 message into MediaLive schedule for channel %s in region %s: %s" % (medialive_channel_id,region,e)
+                      exceptions.append(msg)
+                      LOGGER.warning(msg)
+                      response = msg
+
+                  return response
+
+              ## Channel schedule lookup and old action listing
+              def describe_channel_schedule(medialive_channel_id):
+
+                  # Initialize medialive boto3 client
+                  eml_client = boto3.client('medialive',region_name=region)
+
+                  # Actions to delete list
+                  actions_to_delete = []
+
+                  # Try block to get schedule from MediaLive channel
+                  try:
+
+                      msg = "Attempting to get schedule for channel %s in region %s" % (medialive_channel_id,region)
+
+                      response = eml_client.describe_schedule(ChannelId=medialive_channel_id,MaxResults=123)
+                      LOGGER.debug("Describe_Channel_Response: %s " % (response))
+
+                      schedule_actions = response['ScheduleActions']
+
+                  except Exception as e:
+                      msg = "Unable to get MediaLive schedule for channel %s in region %s: %s" % (medialive_channel_id,region,e)
+                      exceptions.append(msg)
+                      LOGGER.warning(msg)
+                      schedule_actions = []
+
+                  # get number of schedule actions in list
+                  schedule_actions_length = len(schedule_actions)
+                  LOGGER.info("Found %s schedule actions for channel %s in region %s" % (str(schedule_actions_length),medialive_channel_id,region))
+
+                  if schedule_actions_length > 0:
+
+                      LOGGER.info("Iterating through schedule actions, and will create a list of actions that are expired and can be deleted")
+
+                      for schedule_action in schedule_actions:
+
+                          schedule_action_name = schedule_action['ActionName']
+
+                          if "splice_insert" in schedule_action_name:
+
+                              schedule_action_epoch_start = int(schedule_action_name.split("_")[0])
+
+                              current_epoch_minus_lambda_interval = int(time.time()) - lambda_invocation_interval
+
+                              if schedule_action_epoch_start < current_epoch_minus_lambda_interval:
+
+                                  actions_to_delete.append(schedule_action_name)
+
+                  LOGGER.info("There will be %s actions deleteted from channel %s in region %s: %s" % (str(len(actions_to_delete)),medialive_channel_id,region,actions_to_delete))
+
+                  return actions_to_delete
+
+              ## Channel schedule lookup and old action listing
+              def eml_list_channels(medialive_region):
+
+                  LOGGER.info("Scanning MediaLive channels in region: %s" % (medialive_region))
+
+                  # Initialize medialive boto3 client
+                  eml_client = boto3.client('medialive',region_name=medialive_region)
+
+                  try:
+                      response = eml_client.list_channels(MaxResults=123)
+
+                      msg = "MediaLive channel list response for region %s: %s " % (medialive_region,response)
+                      LOGGER.debug(msg)
+
+                  except Exception as e:
+
+                      msg = "Unable to perform list channels in region %s: %s" % (medialive_region,e)
+                      exceptions.append(msg)
+                      return msg
+
+                  return response
+
+
+              #
+              # Function End
+              #
+
+              for medialive_region in medialive_regions:
+
+                  if len(exceptions) > 0:
+                      break
+
+
+                  medialive_list_response = eml_list_channels(medialive_region)
+
+                  medialive_channels_list = medialive_list_response['Channels']
+
+                  if len(medialive_channels_list) < 1:
+                      LOGGER.info("No channels in region %s" % (medialive_region) )
+                      break
+
+
+                  for medialive_channel in medialive_channels_list:
+
+                      if 'scte_inject_duration' in medialive_channel['Tags'].keys() and 'scte_inject_interval' in medialive_channel['Tags'].keys():
+
+                          scte_inject_duration = int(medialive_channel['Tags']['scte_inject_duration'])
+                          scte_inject_interval = int(medialive_channel['Tags']['scte_inject_interval'])
+
+                          if int(scte_inject_interval) > int(lambda_invocation_interval):
+                              break
+
+                          if lambda_invocation_interval % scte_inject_interval > 0:
+                              msg = "The injection interval for channel %s in region %s is invalid. the interval must be a denominator of the Lambda execution time, which is %s seconds" % (medialive_channel['Id'],medialive_region,lambda_invocation_interval)
+                              LOGGER.warning(msg)
+                              exceptions.append(msg)
+                              break
+
+                          if scte_inject_duration + 30 > scte_inject_interval:
+                              msg = "The injection duration is too close to the injection interval for channel %s in region %s, choose a smaller injection duration or a larger injection interval" % (medialive_channel['Id'],medialive_region)
+                              exceptions.append(msg)
+                              LOGGER.warning(msg)
+                              break
+
+                          medialive_channels.append({"region":medialive_region,"channel_id":medialive_channel['Id'],"interval":scte_inject_interval,"duration":scte_inject_duration})
+
+                      #return {"id":medialive_channel['Id'],"Tags":medialive_channel['Tags']}
+
+
+              #return {"now":datetime.datetime.utcnow().isoformat(),"+30":str((datetime.datetime.utcnow() + datetime.timedelta(seconds=30)).isoformat())[0:-3]+"Z"}
+
+              # for each region
+              # list channels
+              # for each channel, tags present?
+              # if tag present, describe schedule to get expired actions
+              #   create schedule action(s)
+
+              msg = "Starting SCTE35 injection script. There are %s channels to iterate through" % (str(len(medialive_channels)))
+              LOGGER.info(msg)
+
+              # Iterate through list and invoke scte35_injector() sub function, passing channel id and region as arguments
+              for channel in medialive_channels:
+                  region = channel['region']
+                  medialive_channel_id = str(channel['channel_id'])
+                  scte_interval = channel['interval']
+                  scte_duration = channel['duration']
+
+                  delete_list = describe_channel_schedule(medialive_channel_id)
+
+                  schedule_update = scte35_injector(medialive_channel_id,region,scte_interval,scte_duration,delete_list)
+
+                  LOGGER.debug("delete_function_response: %s" % (delete_list))
+                  LOGGER.debug("schedule_update_function_response: %s " % (schedule_update))
+
+              if len(exceptions) > 0:
+
+                  msg = "Completed with exceptions: %s " % (exceptions)
+                  LOGGER.warning(msg)
+
+              else:
+
+                  msg = "Completed with no exceptions"
+                  LOGGER.info(msg)
+
+              LOGGER.info("Exiting Lambda")
+              return msg
+
+      Environment:
+        Variables:
+          LAMBDA_INTERVAL: !Ref LambdaInvocationInterval
+          MEDIALIVE_REGIONS: !Ref MediaLiveRegionsToCheck
+          SCTE35_INSERTION_OFFSET: !Ref Scte35InsertionOffset
+      Tags:
+        - Key: StackName
+          Value: !Ref AWS::StackName
+    DependsOn:
+      - LambdaRole
+      - MediaLiveAndCloudWatchPolicy
+
+    #################
+    ## EventBridge
+    #################
+
+  SCTE35CronEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: This Event Rule will run at the interval specified in the stack creation parameters to delete stale schedule events, and create new SCTE35 insertion events
+      Name: MediaLiveSCTE35Inserter
+      RoleArn: !GetAtt LambdaRole.Arn
+      State: ENABLED
+      ScheduleExpression: !Sub "rate(${LambdaInvocationInterval} minutes)"
+      Targets:
+        - Arn: !GetAtt SCTE35Inserter.Arn
+          Id: LambdaToInjectSCTE35IntoEMLChannels
+          RetryPolicy:
+            MaximumRetryAttempts: 4
+            MaximumEventAgeInSeconds: 600
+    DependsOn:
+      - SCTE35Inserter
+      - LambdaRole
+
+#################################
+# Outputs
+#################################
+
+Outputs:
+  MediaLiveTagInterval:
+    Description: For this to work, your MediaLive channel must be present in one of the regions specified. You must also use the following Tags. Key name is below (the value in your channel should be in seconds)
+    Value: scte_inject_interval
+
+  MediaLiveTagDuration:
+    Description: For this to work, your MediaLive channel must be present in one of the regions specified. You must also use the following Tags. Key name is below (the value in your channel should be in seconds)
+    Value: scte_inject_duration
