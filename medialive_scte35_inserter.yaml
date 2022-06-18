@@ -252,7 +252,7 @@ Resources:
 
                                   actions_to_delete.append(schedule_action_name)
 
-                  LOGGER.info("There will be %s actions deleteted from channel %s in region %s: %s" % (str(len(actions_to_delete)),medialive_channel_id,region,actions_to_delete))
+                  LOGGER.info("There will be %s actions deleted from channel %s in region %s: %s" % (str(len(actions_to_delete)),medialive_channel_id,region,actions_to_delete))
 
                   return actions_to_delete
 
@@ -362,6 +362,7 @@ Resources:
 
               LOGGER.info("Exiting Lambda")
               return msg
+
 
       Environment:
         Variables:
