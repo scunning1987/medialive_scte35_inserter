@@ -385,7 +385,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Description: This Event Rule will run at the interval specified in the stack creation parameters to delete stale schedule events, and create new SCTE35 insertion events
-      Name: MediaLiveSCTE35Inserter
+      Name: !Sub ${AWS::StackName}-MediaLiveSCTE35Inserter
       RoleArn: !GetAtt LambdaRole.Arn
       State: ENABLED
       ScheduleExpression: !Sub "rate(${LambdaInvocationInterval} minutes)"
@@ -394,7 +394,7 @@ Resources:
           Id: LambdaToInjectSCTE35IntoEMLChannels
           RetryPolicy:
             MaximumRetryAttempts: 4
-            MaximumEventAgeInSeconds: 600
+            MaximumEventAgeInSeconds: 60
     DependsOn:
       - SCTE35Inserter
       - LambdaRole
