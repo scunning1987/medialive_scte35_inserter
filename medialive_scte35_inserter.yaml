@@ -102,6 +102,7 @@ Resources:
       Code:
         ZipFile: |
           '''
+          '''
           Copyright (c) 2022 Scott Cunningham
 
           Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -336,6 +337,7 @@ Resources:
 
               msg = "Starting SCTE35 injection script. There are %s channels to iterate through" % (str(len(medialive_channels)))
               LOGGER.info(msg)
+              LOGGER.info(medialive_channels)
 
               # Iterate through list and invoke scte35_injector() sub function, passing channel id and region as arguments
               for channel in medialive_channels:
@@ -345,6 +347,7 @@ Resources:
                   scte_duration = channel['duration']
 
                   delete_list = describe_channel_schedule(medialive_channel_id)
+
 
                   schedule_update = scte35_injector(medialive_channel_id,region,scte_interval,scte_duration,delete_list)
 
@@ -363,7 +366,6 @@ Resources:
 
               LOGGER.info("Exiting Lambda")
               return msg
-
 
       Environment:
         Variables:
