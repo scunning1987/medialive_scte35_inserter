@@ -296,7 +296,7 @@ Resources:
 
                   if len(medialive_channels_list) < 1:
                       LOGGER.info("No channels in region %s" % (medialive_region) )
-                      break
+                      #break
 
 
                   for medialive_channel in medialive_channels_list:
