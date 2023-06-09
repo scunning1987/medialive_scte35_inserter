@@ -307,19 +307,19 @@ Resources:
                           scte_inject_interval = int(medialive_channel['Tags']['scte_inject_interval'])
 
                           if int(scte_inject_interval) > int(lambda_invocation_interval):
-                              break
+                              LOGGER.info("Skipping channel %s as the scte inject interval value is greater than the lambda invocation interval value")
 
                           if lambda_invocation_interval % scte_inject_interval > 0:
                               msg = "The injection interval for channel %s in region %s is invalid. the interval must be a denominator of the Lambda execution time, which is %s seconds" % (medialive_channel['Id'],medialive_region,lambda_invocation_interval)
                               LOGGER.warning(msg)
                               exceptions.append(msg)
-                              break
+                              
 
                           if scte_inject_duration + 30 > scte_inject_interval:
                               msg = "The injection duration is too close to the injection interval for channel %s in region %s, choose a smaller injection duration or a larger injection interval" % (medialive_channel['Id'],medialive_region)
                               exceptions.append(msg)
                               LOGGER.warning(msg)
-                              break
+                              
 
                           medialive_channels.append({"region":medialive_region,"channel_id":medialive_channel['Id'],"interval":scte_inject_interval,"duration":scte_inject_duration})
 
