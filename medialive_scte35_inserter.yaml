@@ -185,7 +185,7 @@ Resources:
                       schedule_action['ScheduleActionSettings'] = {}
                       schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings'] = {}
                       schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings']['Duration'] = scte_duration * 90000
-                      schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings']['SpliceEventId'] = int(time.time() / 1000) + i
+                      schedule_action['ScheduleActionSettings']['Scte35SpliceInsertSettings']['SpliceEventId'] = int(time.time() / 10) + i
 
                       schedule_actions_list.append(schedule_action)
 
