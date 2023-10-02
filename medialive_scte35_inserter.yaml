@@ -141,11 +141,13 @@ Resources:
           lambda_invocation_interval = int(os.environ['LAMBDA_INTERVAL']) * 60 # This is the cron interval time
           avail_start_time_offset = int(os.environ['SCTE35_INSERTION_OFFSET']) # this is the offset for when the SCTE35's will be inserted
           medialive_regions = os.environ['MEDIALIVE_REGIONS'].split(",") # This should be a list populated by CloudFormation template
-          medialive_channels = []
+          
 
           def lambda_handler(event, context):
-
-              # Log event bridge event payloadd
+              medialive_channels = []
+              medialive_channels.clear()
+              
+              # Log event bridge event payload
               LOGGER.info(event)
 
               # create exceptions list to catch and be later printed to log
